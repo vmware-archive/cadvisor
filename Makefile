@@ -49,6 +49,9 @@ release:
 docker:
 	@docker build -t cadvisor:$(shell git rev-parse --short HEAD) -f deploy/Dockerfile .
 
+docker-wf:
+	@docker build -t wavefronthq/cadvisor:beta -f deploy/Dockerfile .
+
 presubmit: vet
 	@echo ">> checking go formatting"
 	@./build/check_gofmt.sh

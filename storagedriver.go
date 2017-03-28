@@ -29,7 +29,7 @@ import (
 	_ "github.com/google/cadvisor/storage/redis"
 	_ "github.com/google/cadvisor/storage/statsd"
 	_ "github.com/google/cadvisor/storage/stdout"
-
+	_ "github.com/google/cadvisor/storage/wavefront"
 	"github.com/golang/glog"
 )
 

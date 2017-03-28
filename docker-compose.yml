@@ -1,0 +1,14 @@
+
+  cadvisor-beta:
+    container_name: cadvisor-beta
+    image: wavefronthq/cadvisor:beta
+    command: -storage_driver=wavefront -storage_driver_wf_proxy_host=172.17.0.2:2878 -storage_driver_wf_source="{com.docker.compose.service}" --storage_driver_wf_prefix=cadvisor. -storage_driver_wf_interval=60 -storage_driver_wf_taggify_labels=true -storage_driver_wf_add_tags="az=us-west1 env=dev" -logtostderr -storage_driver_wf_label_filter=com.docker.compose.service,com.docker.compose.project
+    restart: always
+    ports:
+      - "6091:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: always
