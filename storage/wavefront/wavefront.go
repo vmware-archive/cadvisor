@@ -112,7 +112,10 @@ func newStorage(proxyAddress string, prefix string, interval int, addTags string
 
 
 	// Parse label filter
-	wavefrontStorage.WfLabelFilter = strings.Split(labelFilter,",")
+	if labelFilter != "" {
+		wavefrontStorage.WfLabelFilter = strings.Split(labelFilter, ",")
+		glog.Infof("Label filter is set to %s:",labelFilter)
+	}
 
 	// Initialize map that will hold timestamp of the last flush for each container
 	wavefrontStorage.LastFlush = make(map[string]time.Time)
@@ -251,7 +254,6 @@ func (driver *wavefrontStorage) AddStats(ref info.ContainerReference, stats *inf
 			}
 		}
 	}
-
 	//metric data
 	series := driver.containerStatsToValues(stats)
 	//metric data on volumes
