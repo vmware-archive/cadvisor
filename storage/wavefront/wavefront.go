@@ -45,7 +45,7 @@ type wavefrontStorage struct {
 	WfTaggifyLabels bool
 	WfLabelFilter   []string
 	WfDebug         bool
-	lock            sync.Mutex
+	lock            sync.RWMutex
 }
 
 const (
@@ -184,7 +184,9 @@ func (driver *wavefrontStorage) AddStats(ref info.ContainerReference, stats *inf
 
 	//Only send to WF if the interval has passed.
 	current := time.Now()
+        driver.lock.RLock()
 	dur := current.Sub(driver.LastFlush[containerName])
+        driver.lock.RUnlock()
 	//Get the Wavefront interval variable
 	//osInterval, err := strconv.Atoi(os.Getenv("WF_INTERVAL"))
 	osInterval := driver.WfInterval
