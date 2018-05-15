@@ -54,7 +54,7 @@ docker:
 	@docker build -t cadvisor:$(shell git rev-parse --short HEAD) -f deploy/Dockerfile .
 
 docker-wf:
-	@docker build -t wavefronthq/cadvisor:v0.25-netgo -f deploy/Dockerfile .
+	@docker build -t wavefronthq/cadvisor:v0.29 -f deploy/Dockerfile .
 
 presubmit: vet
 	@echo ">> checking go formatting"
