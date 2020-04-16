@@ -65,7 +65,7 @@ docker-build:
 	@docker run --rm -w /go/src/github.com/google/cadvisor -v ${PWD}:/go/src/github.com/google/cadvisor golang:1.12 make build
 
 docker-wf:
-	@docker build -t wavefronthq/cadvisor:v0.25-netgo -f deploy/Dockerfile .
+	@docker build -t wavefronthq/cadvisor:v0.36 -f deploy/Dockerfile .
 
 presubmit: vet
 	@echo ">> checking go formatting"
