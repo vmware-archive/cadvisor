@@ -171,15 +171,17 @@ func (driver *wavefrontStorage) containerFsStatsToValues(series *map[string]uint
 	}
 }
 
-func (driver *wavefrontStorage) AddStats(ref info.ContainerReference, stats *info.ContainerStats) error {
+func (driver *wavefrontStorage) AddStats(cInfo *info.ContainerInfo, stats *info.ContainerStats) error {
 
 	if stats == nil {
 		return nil
 	}
 	//Container name
-	containerName := ref.Name
-	if len(ref.Aliases) > 0 {
-		containerName = ref.Aliases[0]
+	var containerName string
+	if len(cInfo.ContainerReference.Aliases) > 0 {
+		containerName = cInfo.ContainerReference.Aliases[0]
+	} else {
+		containerName = cInfo.ContainerReference.Name
 	}
 
 	//Only send to WF if the interval has passed.
@@ -217,7 +219,7 @@ func (driver *wavefrontStorage) AddStats(ref info.ContainerReference, stats *inf
 	if strings.Contains(source, "{") && strings.Contains(source, "}") {
 		labelKey := strings.TrimLeft(source, "{")
 		labelKey = strings.TrimRight(labelKey, "}")
-		labelVal := ref.Labels[labelKey]
+		labelVal := cInfo.Spec.Labels[labelKey]
 		hostname, _ := os.Hostname()
 		if labelVal == "" {
 			source = hostname
@@ -231,13 +233,13 @@ func (driver *wavefrontStorage) AddStats(ref info.ContainerReference, stats *inf
 	//Additional tags (namespace and labels)
 	appendTags := ""
 	//Namespace
-	ns := ref.Namespace
+	ns := cInfo.ContainerReference.Namespace
 	if ns != "" {
 		appendTags += " namespace=\"" + ns + "\""
 	}
 	//Taggify Labels
 	if driver.WfTaggifyLabels == true {
-		labels := ref.Labels
+		labels := cInfo.Spec.Labels
 
 		// user did not provide a filter include all
 		if len(driver.WfLabelFilter) == 0 {
