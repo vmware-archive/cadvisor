@@ -17,6 +17,7 @@ package machine
 import (
 	"io/ioutil"
 	"reflect"
+	"runtime"
 	"testing"
 
 	info "github.com/google/cadvisor/info/v1"
@@ -25,6 +26,9 @@ import (
 )
 
 func TestTopology(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("cpuinfo testdata is for amd64")
+	}
 	testfile := "./testdata/cpuinfo"
 	testcpuinfo, err := ioutil.ReadFile(testfile)
 	if err != nil {
@@ -59,6 +63,8 @@ func TestTopology(t *testing.T) {
 		node := info.Node{Id: i}
 		// Copy over Memory from result. TODO(rjnagal): Use memory from fake.
 		node.Memory = topology[i].Memory
+		// Copy over HugePagesInfo from result. TODO(ohsewon): Use HugePagesInfo from fake.
+		node.HugePages = topology[i].HugePages
 		for j := 0; j < numCoresPerNode; j++ {
 			core := info.Core{Id: i*numCoresPerNode + j}
 			core.Caches = append(core.Caches, cache)
@@ -76,6 +82,9 @@ func TestTopology(t *testing.T) {
 }
 
 func TestTopologyWithSimpleCpuinfo(t *testing.T) {
+	if isSystemZ() {
+		t.Skip("systemZ has no topology info")
+	}
 	sysFs := &fakesysfs.FakeSysFs{}
 	c := sysfs.CacheInfo{
 		Size:  32 * 1024,
@@ -100,6 +109,8 @@ func TestTopologyWithSimpleCpuinfo(t *testing.T) {
 	node.Cores = append(node.Cores, core)
 	// Copy over Memory from result. TODO(rjnagal): Use memory from fake.
 	node.Memory = topology[0].Memory
+	// Copy over HugePagesInfo from result. TODO(ohsewon): Use HugePagesInfo from fake.
+	node.HugePages = topology[0].HugePages
 	expected := []info.Node{node}
 	if !reflect.DeepEqual(topology, expected) {
 		t.Errorf("Expected topology %+v, got %+v", expected, topology)
@@ -110,8 +121,58 @@ func TestTopologyWithSimpleCpuinfo(t *testing.T) {
 }
 
 func TestTopologyEmptyCpuinfo(t *testing.T) {
+	if isSystemZ() {
+		t.Skip("systemZ has no topology info")
+	}
 	_, _, err := GetTopology(&fakesysfs.FakeSysFs{}, "")
 	if err == nil {
 		t.Errorf("Expected empty cpuinfo to fail.")
+	}
+}
+
+func TestTopologyCoreId(t *testing.T) {
+	val, _ := getCoreIdFromCpuBus("./testdata", 0)
+	if val != 0 {
+		t.Errorf("Expected core 0, found %d", val)
+	}
+
+	val, _ = getCoreIdFromCpuBus("./testdata", 9999)
+	if val != 8888 {
+		t.Errorf("Expected core 8888, found %d", val)
+	}
+}
+
+func TestTopologyNodeId(t *testing.T) {
+	val, _ := getNodeIdFromCpuBus("./testdata", 0)
+	if val != 0 {
+		t.Errorf("Expected core 0, found %d", val)
+	}
+
+	val, _ = getNodeIdFromCpuBus("./testdata", 9999)
+	if val != 1234 {
+		t.Errorf("Expected core 1234 , found %d", val)
+	}
+}
+
+func TestGetHugePagesInfo(t *testing.T) {
+	testPath := "./testdata/hugepages/"
+	expected := []info.HugePagesInfo{
+		{
+			NumPages: 1,
+			PageSize: 1048576,
+		},
+		{
+			NumPages: 2,
+			PageSize: 2048,
+		},
+	}
+
+	val, err := GetHugePagesInfo(testPath)
+	if err != nil {
+		t.Errorf("Failed to GetHugePagesInfo() for sample path %s: %v", testPath, err)
+	}
+
+	if !reflect.DeepEqual(expected, val) {
+		t.Errorf("Expected HugePagesInfo %+v, got %+v", expected, val)
 	}
 }

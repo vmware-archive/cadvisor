@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 
@@ -133,12 +134,29 @@ func areCgroupsPresent(available map[string]int, desired []string) (bool, string
 	return true, ""
 }
 
+func validateCpuCfsBandwidth(available_cgroups map[string]int) string {
+	ok, _ := areCgroupsPresent(available_cgroups, []string{"cpu"})
+	if !ok {
+		return "\tCpu cfs bandwidth status unknown: cpu cgroup not enabled.\n"
+	}
+	mnt, err := cgroups.FindCgroupMountpoint("/", "cpu")
+	if err != nil {
+		return "\tCpu cfs bandwidth status unknown: cpu cgroup not mounted.\n"
+	}
+	_, err = os.Stat(path.Join(mnt, "cpu.cfs_period_us"))
+	if os.IsNotExist(err) {
+		return "\tCpu cfs bandwidth is disabled. Recompile kernel with \"CONFIG_CFS_BANDWIDTH\" enabled.\n"
+	}
+
+	return "\tCpu cfs bandwidth is enabled.\n"
+}
+
 func validateMemoryAccounting(available_cgroups map[string]int) string {
 	ok, _ := areCgroupsPresent(available_cgroups, []string{"memory"})
 	if !ok {
 		return "\tHierarchical memory accounting status unknown: memory cgroup not enabled.\n"
 	}
-	mnt, err := cgroups.FindCgroupMountpoint("memory")
+	mnt, err := cgroups.FindCgroupMountpoint("/", "memory")
 	if err != nil {
 		return "\tHierarchical memory accounting status unknown: memory cgroup not mounted.\n"
 	}
@@ -181,6 +199,7 @@ func validateCgroups() (string, string) {
 	out = fmt.Sprintf("Available cgroups: %v\n", available_cgroups)
 	out += desc
 	out += validateMemoryAccounting(available_cgroups)
+	out += validateCpuCfsBandwidth(available_cgroups)
 	return Recommended, out
 }
 
@@ -190,14 +209,14 @@ func validateDockerInfo() (string, string) {
 		return Unsupported, fmt.Sprintf("Docker setup is invalid: %v", err)
 	}
 
-	desc := fmt.Sprintf("Docker exec driver is %s. Storage driver is %s.\n", info.ExecutionDriver, info.Driver)
+	desc := fmt.Sprintf("Storage driver is %s.\n", info.Driver)
 	return Recommended, desc
 }
 
 func validateCgroupMounts() (string, string) {
 	const recommendedMount = "/sys/fs/cgroup"
 	desc := fmt.Sprintf("\tAny cgroup mount point that is detectible and accessible is supported. %s is recommended as a standard location.\n", recommendedMount)
-	mnt, err := cgroups.FindCgroupMountpoint("cpu")
+	mnt, err := cgroups.FindCgroupMountpoint("/", "cpu")
 	if err != nil {
 		out := "Could not locate cgroup mount point.\n"
 		out += desc

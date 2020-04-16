@@ -24,8 +24,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
-	"golang.org/x/exp/inotify"
+	"k8s.io/klog"
+	inotify "k8s.io/utils/inotify"
 )
 
 type Tail struct {
@@ -96,7 +96,7 @@ func (t *Tail) attemptOpen() error {
 	var lastErr error
 	for interval := defaultRetryInterval; ; interval *= 2 {
 		attempt++
-		glog.V(4).Infof("Opening %s (attempt %d)", t.filename, attempt)
+		klog.V(4).Infof("Opening %s (attempt %d)", t.filename, attempt)
 		var err error
 		t.file, err = os.Open(t.filename)
 		if err == nil {
@@ -106,7 +106,7 @@ func (t *Tail) attemptOpen() error {
 			return nil
 		}
 		lastErr = err
-		glog.V(4).Infof("open log file %s error: %v", t.filename, err)
+		klog.V(4).Infof("open log file %s error: %v", t.filename, err)
 
 		if interval >= maxRetryInterval {
 			break
@@ -127,7 +127,7 @@ func (t *Tail) watchLoop() {
 	for {
 		err := t.watchFile()
 		if err != nil {
-			glog.Errorf("Tail failed on %s: %v", t.filename, err)
+			klog.Errorf("Tail failed on %s: %v", t.filename, err)
 			break
 		}
 	}
@@ -141,7 +141,7 @@ func (t *Tail) watchFile() error {
 	defer t.file.Close()
 
 	watchDir := filepath.Dir(t.filename)
-	err = t.watcher.AddWatch(watchDir, inotify.IN_MOVED_FROM|inotify.IN_DELETE)
+	err = t.watcher.AddWatch(watchDir, inotify.InMovedFrom|inotify.InDelete)
 	if err != nil {
 		return fmt.Errorf("Failed to add watch to directory %s: %v", watchDir, err)
 	}
@@ -152,7 +152,7 @@ func (t *Tail) watchFile() error {
 		case event := <-t.watcher.Event:
 			eventPath := filepath.Clean(event.Name) // Directory events have an extra '/'
 			if eventPath == t.filename {
-				glog.V(4).Infof("Log file %s moved/deleted", t.filename)
+				klog.V(4).Infof("Log file %s moved/deleted", t.filename)
 				return nil
 			}
 		case <-t.stop:

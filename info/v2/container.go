@@ -38,7 +38,7 @@ type CpuSpec struct {
 	Mask string `json:"mask,omitempty"`
 	// CPUQuota Default is disabled
 	Quota uint64 `json:"quota,omitempty"`
-	// Period is the CPU reference time in ns e.g the quota is compared aginst this.
+	// Period is the CPU reference time in ns e.g the quota is compared against this.
 	Period uint64 `json:"period,omitempty"`
 }
 
@@ -90,6 +90,9 @@ type ContainerSpec struct {
 	HasCustomMetrics bool            `json:"has_custom_metrics"`
 	CustomMetrics    []v1.MetricSpec `json:"custom_metrics,omitempty"`
 
+	HasProcesses bool           `json:"has_processes"`
+	Processes    v1.ProcessSpec `json:"processes,omitempty"`
+
 	// Following resources have no associated spec, but are being isolated.
 	HasNetwork    bool `json:"has_network"`
 	HasFilesystem bool `json:"has_filesystem"`
@@ -117,6 +120,9 @@ type DeprecatedContainerStats struct {
 	// Network statistics
 	HasNetwork bool         `json:"has_network"`
 	Network    NetworkStats `json:"network,omitempty"`
+	// Processes statistics
+	HasProcesses bool            `json:"has_processes"`
+	Processes    v1.ProcessStats `json:"processes,omitempty"`
 	// Filesystem statistics
 	HasFilesystem bool         `json:"has_filesystem"`
 	Filesystem    []v1.FsStats `json:"filesystem,omitempty"`
@@ -142,10 +148,14 @@ type ContainerStats struct {
 	Memory *v1.MemoryStats `json:"memory,omitempty"`
 	// Network statistics
 	Network *NetworkStats `json:"network,omitempty"`
+	// Processes statistics
+	Processes *v1.ProcessStats `json:"processes,omitempty"`
 	// Filesystem statistics
 	Filesystem *FilesystemStats `json:"filesystem,omitempty"`
 	// Task load statistics
 	Load *v1.LoadStats `json:"load_stats,omitempty"`
+	// Metrics for Accelerators. Each Accelerator corresponds to one element in the array.
+	Accelerators []v1.AcceleratorStats `json:"accelerators,omitempty"`
 	// Custom Metrics
 	CustomMetrics map[string][]v1.MetricVal `json:"custom_metrics,omitempty"`
 }
@@ -199,6 +209,9 @@ type DerivedStats struct {
 }
 
 type FsInfo struct {
+	// Time of generation of these stats.
+	Timestamp time.Time `json:"timestamp"`
+
 	// The block device name associated with the filesystem.
 	Device string `json:"device"`
 
@@ -231,6 +244,9 @@ type RequestOptions struct {
 	Count int `json:"count"`
 	// Whether to include stats for child subcontainers.
 	Recursive bool `json:"recursive"`
+	// Update stats if they are older than MaxAge
+	// nil indicates no update, and 0 will always trigger an update.
+	MaxAge *time.Duration `json:"max_age"`
 }
 
 type ProcessInfo struct {
@@ -246,6 +262,7 @@ type ProcessInfo struct {
 	RunningTime   string  `json:"running_time"`
 	CgroupPath    string  `json:"cgroup_path"`
 	Cmd           string  `json:"cmd"`
+	FdCount       int     `json:"fd_count"`
 }
 
 type TcpStat struct {
@@ -269,6 +286,12 @@ type NetworkStats struct {
 	Tcp TcpStat `json:"tcp"`
 	// TCP6 connection stats (Established, Listen...)
 	Tcp6 TcpStat `json:"tcp6"`
+	// UDP connection stats
+	Udp v1.UdpStat `json:"udp"`
+	// UDP6 connection stats
+	Udp6 v1.UdpStat `json:"udp6"`
+	// TCP advanced stats
+	TcpAdvanced v1.TcpAdvancedStat `json:"tcp_advanced"`
 }
 
 // Instantaneous CPU stats

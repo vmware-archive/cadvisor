@@ -24,8 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/cadvisor/container"
 	info "github.com/google/cadvisor/info/v1"
-
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -48,6 +48,22 @@ func (p testSubcontainersInfoProvider) GetMachineInfo() (*info.MachineInfo, erro
 	}, nil
 }
 
+var allMetrics = container.MetricSet{
+	container.CpuUsageMetrics:                struct{}{},
+	container.ProcessSchedulerMetrics:        struct{}{},
+	container.PerCpuUsageMetrics:             struct{}{},
+	container.MemoryUsageMetrics:             struct{}{},
+	container.CpuLoadMetrics:                 struct{}{},
+	container.DiskIOMetrics:                  struct{}{},
+	container.AcceleratorUsageMetrics:        struct{}{},
+	container.DiskUsageMetrics:               struct{}{},
+	container.NetworkUsageMetrics:            struct{}{},
+	container.NetworkTcpUsageMetrics:         struct{}{},
+	container.NetworkAdvancedTcpUsageMetrics: struct{}{},
+	container.NetworkUdpUsageMetrics:         struct{}{},
+	container.ProcessMetrics:                 struct{}{},
+}
+
 func (p testSubcontainersInfoProvider) SubcontainersInfo(string, *info.ContainerInfoRequest) ([]*info.ContainerInfo, error) {
 	return []*info.ContainerInfo{
 		{
@@ -63,6 +79,15 @@ func (p testSubcontainersInfoProvider) SubcontainersInfo(string, *info.Container
 					Period: 100000,
 					Quota:  10000,
 				},
+				Memory: info.MemorySpec{
+					Limit:       2048,
+					Reservation: 1024,
+					SwapLimit:   4096,
+				},
+				HasProcesses: true,
+				Processes: info.ProcessSpec{
+					Limit: 100,
+				},
 				CreationTime: time.Unix(1257894000, 0),
 				Labels: map[string]string{
 					"foo.label": "bar",
@@ -73,6 +98,7 @@ func (p testSubcontainersInfoProvider) SubcontainersInfo(string, *info.Container
 			},
 			Stats: []*info.ContainerStats{
 				{
+					Timestamp: time.Unix(1395066363, 0),
 					Cpu: info.CpuStats{
 						Usage: info.CpuUsage{
 							Total:  1,
@@ -85,9 +111,16 @@ func (p testSubcontainersInfoProvider) SubcontainersInfo(string, *info.Container
 							ThrottledPeriods: 18,
 							ThrottledTime:    1724314000,
 						},
+						Schedstat: info.CpuSchedstat{
+							RunTime:      53643567,
+							RunqueueTime: 479424566378,
+							RunPeriods:   984285,
+						},
+						LoadAverage: 2,
 					},
 					Memory: info.MemoryStats{
 						Usage:      8,
+						MaxUsage:   8,
 						WorkingSet: 9,
 						ContainerData: info.MemoryStatsMemoryData{
 							Pgfault:    10,
@@ -97,9 +130,10 @@ func (p testSubcontainersInfoProvider) SubcontainersInfo(string, *info.Container
 							Pgfault:    12,
 							Pgmajfault: 13,
 						},
-						Cache: 14,
-						RSS:   15,
-						Swap:  8192,
+						Cache:      14,
+						RSS:        15,
+						MappedFile: 16,
+						Swap:       8192,
 					},
 					Network: info.NetworkStats{
 						InterfaceStats: info.InterfaceStats{
@@ -125,6 +159,145 @@ func (p testSubcontainersInfoProvider) SubcontainersInfo(string, *info.Container
 								TxErrors:  20,
 								TxDropped: 21,
 							},
+						},
+						Tcp: info.TcpStat{
+							Established: 13,
+							SynSent:     0,
+							SynRecv:     0,
+							FinWait1:    0,
+							FinWait2:    0,
+							TimeWait:    0,
+							Close:       0,
+							CloseWait:   0,
+							LastAck:     0,
+							Listen:      3,
+							Closing:     0,
+						},
+						Tcp6: info.TcpStat{
+							Established: 11,
+							SynSent:     0,
+							SynRecv:     0,
+							FinWait1:    0,
+							FinWait2:    0,
+							TimeWait:    0,
+							Close:       0,
+							CloseWait:   0,
+							LastAck:     0,
+							Listen:      3,
+							Closing:     0,
+						},
+						TcpAdvanced: info.TcpAdvancedStat{
+							TCPFullUndo:               2361,
+							TCPMD5NotFound:            0,
+							TCPDSACKRecv:              83680,
+							TCPSackShifted:            2,
+							TCPSackShiftFallback:      298,
+							PFMemallocDrop:            0,
+							EstabResets:               37,
+							InSegs:                    140370590,
+							TCPPureAcks:               24251339,
+							TCPDSACKOldSent:           15633,
+							IPReversePathFilter:       0,
+							TCPFastOpenPassiveFail:    0,
+							InCsumErrors:              0,
+							TCPRenoFailures:           43414,
+							TCPMemoryPressuresChrono:  0,
+							TCPDeferAcceptDrop:        0,
+							TW:                        10436427,
+							TCPSpuriousRTOs:           0,
+							TCPDSACKIgnoredNoUndo:     71885,
+							RtoMax:                    120000,
+							ActiveOpens:               11038621,
+							EmbryonicRsts:             0,
+							RcvPruned:                 0,
+							TCPLossProbeRecovery:      401,
+							TCPHPHits:                 56096478,
+							TCPPartialUndo:            3,
+							TCPAbortOnMemory:          0,
+							AttemptFails:              48997,
+							RetransSegs:               462961,
+							SyncookiesFailed:          0,
+							OfoPruned:                 0,
+							TCPAbortOnLinger:          0,
+							TCPAbortFailed:            0,
+							TCPRenoReorder:            839,
+							TCPRcvCollapsed:           0,
+							TCPDSACKIgnoredOld:        0,
+							TCPReqQFullDrop:           0,
+							OutOfWindowIcmps:          0,
+							TWKilled:                  0,
+							TCPLossProbes:             88648,
+							TCPRenoRecoveryFail:       394,
+							TCPFastOpenCookieReqd:     0,
+							TCPHPAcks:                 21490641,
+							TCPSACKReneging:           0,
+							TCPTSReorder:              3,
+							TCPSlowStartRetrans:       290832,
+							MaxConn:                   -1,
+							SyncookiesRecv:            0,
+							TCPSackFailures:           60,
+							DelayedACKLocked:          90,
+							TCPDSACKOfoSent:           1,
+							TCPSynRetrans:             988,
+							TCPDSACKOfoRecv:           10,
+							TCPSACKDiscard:            0,
+							TCPMD5Unexpected:          0,
+							TCPSackMerged:             6,
+							RtoMin:                    200,
+							CurrEstab:                 22,
+							TCPTimeWaitOverflow:       0,
+							ListenOverflows:           0,
+							DelayedACKs:               503975,
+							TCPLossUndo:               61374,
+							TCPOrigDataSent:           130698387,
+							TCPBacklogDrop:            0,
+							TCPReqQFullDoCookies:      0,
+							TCPFastOpenPassive:        0,
+							PAWSActive:                0,
+							OutRsts:                   91699,
+							TCPSackRecoveryFail:       2,
+							DelayedACKLost:            18843,
+							TCPAbortOnData:            8,
+							TCPMinTTLDrop:             0,
+							PruneCalled:               0,
+							TWRecycled:                0,
+							ListenDrops:               0,
+							TCPAbortOnTimeout:         0,
+							SyncookiesSent:            0,
+							TCPSACKReorder:            11,
+							TCPDSACKUndo:              33,
+							TCPMD5Failure:             0,
+							TCPLostRetransmit:         0,
+							TCPAbortOnClose:           7,
+							TCPFastOpenListenOverflow: 0,
+							OutSegs:                   211580512,
+							InErrs:                    31,
+							TCPTimeouts:               27422,
+							TCPLossFailures:           729,
+							TCPSackRecovery:           159,
+							RtoAlgorithm:              1,
+							PassiveOpens:              59,
+							LockDroppedIcmps:          0,
+							TCPRenoRecovery:           3519,
+							TCPFACKReorder:            0,
+							TCPFastRetrans:            11794,
+							TCPRetransFail:            0,
+							TCPMemoryPressures:        0,
+							TCPFastOpenActive:         0,
+							TCPFastOpenActiveFail:     0,
+							PAWSEstab:                 0,
+						},
+						Udp: info.UdpStat{
+							Listen:   0,
+							Dropped:  0,
+							RxQueued: 0,
+							TxQueued: 0,
+						},
+						Udp6: info.UdpStat{
+							Listen:   0,
+							Dropped:  0,
+							RxQueued: 0,
+							TxQueued: 0,
 						},
 					},
 					Filesystem: []info.FsStats{
@@ -165,6 +338,38 @@ func (p testSubcontainersInfoProvider) SubcontainersInfo(string, *info.Container
 							WeightedIoTime:  49,
 						},
 					},
+					Accelerators: []info.AcceleratorStats{
+						{
+							Make:        "nvidia",
+							Model:       "tesla-p100",
+							ID:          "GPU-deadbeef-1234-5678-90ab-feedfacecafe",
+							MemoryTotal: 20304050607,
+							MemoryUsed:  2030405060,
+							DutyCycle:   12,
+						},
+						{
+							Make:        "nvidia",
+							Model:       "tesla-k80",
+							ID:          "GPU-deadbeef-0123-4567-89ab-feedfacecafe",
+							MemoryTotal: 10203040506,
+							MemoryUsed:  1020304050,
+							DutyCycle:   6,
+						},
+					},
+					Processes: info.ProcessStats{
+						ProcessCount:   1,
+						FdCount:        5,
+						SocketCount:    3,
+						ThreadsCurrent: 5,
+						ThreadsMax:     100,
+						Ulimits: []info.UlimitSpec{
+							{
+								Name:      "max_open_files",
+								SoftLimit: 16384,
+								HardLimit: 16384,
+							},
+						},
+					},
 					TaskStats: info.LoadStats{
 						NrSleeping:        50,
 						NrRunning:         51,
@@ -188,7 +393,7 @@ func TestPrometheusCollector(t *testing.T) {
 		s := DefaultContainerLabels(container)
 		s["zone.name"] = "hello"
 		return s
-	})
+	}, allMetrics)
 	prometheus.MustRegister(c)
 	defer prometheus.Unregister(c)
 
@@ -258,7 +463,7 @@ func TestPrometheusCollector_scrapeFailure(t *testing.T) {
 		s := DefaultContainerLabels(container)
 		s["zone.name"] = "hello"
 		return s
-	})
+	}, allMetrics)
 	prometheus.MustRegister(c)
 	defer prometheus.Unregister(c)
 

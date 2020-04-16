@@ -1,5 +1,105 @@
 # Changelog
 
+### 0.36.0 (2020-02-28)
+- Add support for risc and mips CPUs
+- Add advanced TCP stats
+- Fix bug in which cAdvisor could fail to discover docker's root directory
+- The stdout storage driver now supports metric timestamps
+- Add ulimit metrics
+- Support multi-arch container builds
+- Switch to go modules
+
+### 0.35.0 (2019-11-27)
+- Add hugepage info per-numa-node
+- Add support for cgoups v2 unified higherarchy
+- Drop support for rkt
+- Fix a bug that prevented running with multiple tmpfs mounts
+
+### 0.34.0 (2019-08-26)
+- Fix disk stats in LXD using ZFS storage pool
+- Support monitoring non-k8s containerd namespaces
+- The `storage_driver` flag now supports comma-separated inputs
+- Add `container_sockets`, `container_threads`, and `container_threads_max` metrics
+- Fix CRI-O missing network metris bug
+- Add `disable_root_cgroup_stats` flag to allow not collecting stats from the root cgroup.
+
+### 0.33.0 (2019-02-26)
+- Add --raw_cgroup_prefix_whitelist flag to allow configuring which raw cgroup trees cAdvisor monitors
+- Replace `du` and `find` with a golang implementation
+- Periodically update MachineInfo to support hot-add/remove
+- Add explicit timestamps to prometheus metrics to fix rate calculations
+- Add --url_base_prefix flag to provide better support for reverse proxies
+- Add --white_listed_container_labels flag to allow specifying the container labels added as prometheus labels
+
+### 0.32.0 (2018-11-12)
+- Add container process and file descriptor metrics (disabled by default)
+- Rename `type` label to `failure_type` for prometheus `memory_failures_total` metric
+- Reduce mesos error logging when mesos not present
+
+### 0.31.0 (2018-09-07)
+- Fix NVML initialization race condition
+- Fix brtfs filesystem discovery
+- Fix race condition with AllDockerContainers
+- Don't watch .mount cgroups
+- Reduce lock contention during list containers
+- Don't produce prometheus metrics for ignored metrics
+- Add option to not export container labels as prometheus labels
+- Docs: Publish cAdvisor daemonset
+- Docs: Add documentation for exported prometheus metrics
+
+### 0.30.1 (2018-06-11)
+- Revert switch from inotify to fsnotify
+
+### 0.30.0 (2018-06-05)
+- Use IONice to reduce IO priority of `du` and `find`
+- BREAKING API CHANGE: ContainerReference no longer contains Labels.  Use ContainerSpec instead.
+- Add schedstat metrics, disabled by default.
+- Fix a bug where cadvisor failed to discover a sub-cgroup that was created soon after the parent cgroup.
+
+### 0.29.0 (2018-02-20)
+- Disable per-cpu metrics by default for scalability
+- Fix disk usage monitoring of overlayFs
+- Retry docker connection on startup timeout
+
+### 0.28.3 (2017-12-7)
+- Add timeout for docker calls
+- Fix prometheus label consistency
+
+### 0.28.2 (2017-11-21)
+- Fix GPU init race condition
+
+### 0.28.1 (2017-11-20)
+- Add containerd support
+- Fix fsnotify regression from 0.28.0
+- Add on demand metrics
+
+### 0.28.0 (2017-11-06)
+- Add container nvidia GPU metrics
+- Expose container memory max_usage_in_bytes
+- Add container memory reservation to prometheus
+
+### 0.27.1 (2017-09-06)
+- Add CRI-O support
+
+### 0.27.0 (2017-09-01)
+- Fix journalctl leak
+- Fix container memory rss
+- Add hugepages support
+- Fix incorrect CPU usage with 4.7 kernel
+- OOM parser uses kmsg
+- Add tmpfs support
+
+### 0.26.1 (2017-06-21)
+- Fix prometheus metrics.
+
+### 0.26.0 (2017-05-31)
+- Fix disk partition discovery for brtfs
+- Add ZFS support
+- Add UDP metrics (collection disabled by default)
+- Improve diskio prometheus metrics
+- Update Prometheus godeps to v0.8
+- Add overlay2 storage driver support
+
 ### 0.25.0 (2017-03-09)
 - Disable thin_ls due to excessive iops
 - Ignore .mount cgroups, fixing dissappearing stats

@@ -28,6 +28,18 @@ func TestTcpMetricsAreDisabledByDefault(t *testing.T) {
 	assert.True(t, ignoreMetrics.Has(container.NetworkTcpUsageMetrics))
 }
 
+func TestAdvancedTcpMetricsAreDisabledByDefault(t *testing.T) {
+	assert.True(t, ignoreMetrics.Has(container.NetworkAdvancedTcpUsageMetrics))
+	flag.Parse()
+	assert.True(t, ignoreMetrics.Has(container.NetworkAdvancedTcpUsageMetrics))
+}
+
+func TestUdpMetricsAreDisabledByDefault(t *testing.T) {
+	assert.True(t, ignoreMetrics.Has(container.NetworkUdpUsageMetrics))
+	flag.Parse()
+	assert.True(t, ignoreMetrics.Has(container.NetworkUdpUsageMetrics))
+}
+
 func TestIgnoreMetrics(t *testing.T) {
 	tests := []struct {
 		value    string

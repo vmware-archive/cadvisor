@@ -17,20 +17,20 @@ func newRestoredProcess(pid int, fds []string) (*restoredProcess, error) {
 	if err != nil {
 		return nil, err
 	}
-	started, err := system.GetProcessStartTime(pid)
+	stat, err := system.Stat(pid)
 	if err != nil {
 		return nil, err
 	}
 	return &restoredProcess{
 		proc:             proc,
-		processStartTime: started,
+		processStartTime: stat.StartTime,
 		fds:              fds,
 	}, nil
 }
 
 type restoredProcess struct {
 	proc             *os.Process
-	processStartTime string
+	processStartTime uint64
 	fds              []string
 }
 
@@ -60,7 +60,7 @@ func (p *restoredProcess) wait() (*os.ProcessState, error) {
 	return st, nil
 }
 
-func (p *restoredProcess) startTime() (string, error) {
+func (p *restoredProcess) startTime() (uint64, error) {
 	return p.processStartTime, nil
 }
 
@@ -76,12 +76,15 @@ func (p *restoredProcess) setExternalDescriptors(newFds []string) {
 	p.fds = newFds
 }
 
+func (p *restoredProcess) forwardChildLogs() {
+}
+
 // nonChildProcess represents a process where the calling process is not
 // the parent process.  This process is created when a factory loads a container from
 // a persisted state.
 type nonChildProcess struct {
 	processPid       int
-	processStartTime string
+	processStartTime uint64
 	fds              []string
 }
 
@@ -101,7 +104,7 @@ func (p *nonChildProcess) wait() (*os.ProcessState, error) {
 	return nil, newGenericError(fmt.Errorf("restored process cannot be waited on"), SystemError)
 }
 
-func (p *nonChildProcess) startTime() (string, error) {
+func (p *nonChildProcess) startTime() (uint64, error) {
 	return p.processStartTime, nil
 }
 
@@ -119,4 +122,7 @@ func (p *nonChildProcess) externalDescriptors() []string {
 
 func (p *nonChildProcess) setExternalDescriptors(newFds []string) {
 	p.fds = newFds
+}
+
+func (p *nonChildProcess) forwardChildLogs() {
 }
