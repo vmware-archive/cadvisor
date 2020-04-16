@@ -71,14 +71,14 @@ const (
 )
 
 var (
-	argProxyAddress = flag.String("storage_driver_wf_proxy_host", "", "Wavefront Proxy host:port")
-	argPrefix = flag.String("storage_driver_wf_prefix", "cadvisor.", "Prefix to be added to metrics")
-	argInterval = flag.Int("storage_driver_wf_interval", 60, "Wavefront flush interval")
-	argAddTags = flag.String("storage_driver_wf_add_tags", "", "Point tags to add to metrics")
-	argSourceTag = flag.String("storage_driver_wf_source", "", "Source tag to add to metrics")
+	argProxyAddress  = flag.String("storage_driver_wf_proxy_host", "", "Wavefront Proxy host:port")
+	argPrefix        = flag.String("storage_driver_wf_prefix", "cadvisor.", "Prefix to be added to metrics")
+	argInterval      = flag.Int("storage_driver_wf_interval", 60, "Wavefront flush interval")
+	argAddTags       = flag.String("storage_driver_wf_add_tags", "", "Point tags to add to metrics")
+	argSourceTag     = flag.String("storage_driver_wf_source", "", "Source tag to add to metrics")
 	argWfLabelFilter = flag.String("storage_driver_wf_label_filter", "", "A comma separated list of labels that should be taggified")
 	argTaggifyLabels = flag.Bool("storage_driver_wf_taggify_labels", true, "If set to true, docker labels will be added as point tags to metrics.")
-	argWfDebug = flag.Bool("storage_driver_wf_debug", true, "If set to true, cAdvisor will log all metric lines.")
+	argWfDebug       = flag.Bool("storage_driver_wf_debug", true, "If set to true, cAdvisor will log all metric lines.")
 )
 
 func new() (storage.StorageDriver, error) {
@@ -107,7 +107,6 @@ func newStorage(proxyAddress string, prefix string, interval int, addTags string
 	}
 
 	glog.Infoln("Initializing Wavefront Storage Driver")
-
 
 	// Parse label filter
 	if labelFilter != "" {
@@ -162,12 +161,12 @@ func (driver *wavefrontStorage) containerStatsToValues(stats *info.ContainerStat
 func (driver *wavefrontStorage) containerFsStatsToValues(series *map[string]uint64, stats *info.ContainerStats) {
 	for _, fsStat := range stats.Filesystem {
 		// Summary stats.
-		(*series)[colFsSummary + "." + colFsLimit] += fsStat.Limit
-		(*series)[colFsSummary + "." + colFsUsage] += fsStat.Usage
+		(*series)[colFsSummary+"."+colFsLimit] += fsStat.Limit
+		(*series)[colFsSummary+"."+colFsUsage] += fsStat.Usage
 
 		// Per device stats.
-		(*series)[fsStat.Device + "~" + colFsLimit] = fsStat.Limit
-		(*series)[fsStat.Device + "~" + colFsUsage] = fsStat.Usage
+		(*series)[fsStat.Device+"~"+colFsLimit] = fsStat.Limit
+		(*series)[fsStat.Device+"~"+colFsUsage] = fsStat.Usage
 	}
 }
 
@@ -307,12 +306,12 @@ func shouldRemoveQuote(s string) bool {
 	}
 
 	quote := s[0]
-	if quote != s[n - 1] {
+	if quote != s[n-1] {
 		return false
 	}
 
 	if quote == '"' {
-		content := s[1 : n - 1]
+		content := s[1 : n-1]
 		if !strings.Contains(content, "\"") {
 			return true
 		}
@@ -320,7 +319,7 @@ func shouldRemoveQuote(s string) bool {
 
 		content_size := len(content)
 		if content_size >= 2 {
-			if content[0] == '"' && content[0] == content[content_size - 1] {
+			if content[0] == '"' && content[0] == content[content_size-1] {
 				return true
 			}
 		}
@@ -330,12 +329,12 @@ func shouldRemoveQuote(s string) bool {
 }
 
 // unquote removes first and last byte of the param s assuming it is quoted.
-func unquote(s string) (string) {
+func unquote(s string) string {
 	n := len(s)
 	if n < 2 {
 		return s
 	}
-	return s[1 : n - 1]
+	return s[1 : n-1]
 }
 
 func (driver *wavefrontStorage) Close() error {
@@ -345,7 +344,7 @@ func (driver *wavefrontStorage) Close() error {
 
 func (driver *wavefrontStorage) Connect() error {
 	// Timeout if unable to connect after 10 seconds.
-	conn, err := net.DialTimeout("tcp", driver.ProxyAddress, time.Second * 10)
+	conn, err := net.DialTimeout("tcp", driver.ProxyAddress, time.Second*10)
 	driver.Conn = conn
 	return err
 }
