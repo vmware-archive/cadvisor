@@ -24,7 +24,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
+	"k8s.io/klog"
+
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/google/cadvisor/storage"
 	"os"
@@ -106,12 +107,12 @@ func newStorage(proxyAddress string, prefix string, interval int, addTags string
 		WfDebug:         wfDebug,
 	}
 
-	glog.Infoln("Initializing Wavefront Storage Driver")
+	klog.Infoln("Initializing Wavefront Storage Driver")
 
 	// Parse label filter
 	if labelFilter != "" {
 		wavefrontStorage.WfLabelFilter = strings.Split(labelFilter, ",")
-		glog.Infof("Label filter is set to %s:", labelFilter)
+		klog.Infof("Label filter is set to %s:", labelFilter)
 	}
 
 	// Initialize map that will hold timestamp of the last flush for each container
@@ -200,12 +201,12 @@ func (driver *wavefrontStorage) AddStats(cInfo *info.ContainerInfo, stats *info.
 	//Open proxy connection
 	err := driver.Connect()
 	if err != nil {
-		glog.Error(fmt.Sprintf("Unable to connect to proxy at %s", driver.ProxyAddress))
+		klog.Error(fmt.Sprintf("Unable to connect to proxy at %s", driver.ProxyAddress))
 		return err
 	}
 	defer driver.Close()
 
-	//glog.Info("Flushing container stats for " + containerName)
+	//klog.Info("Flushing container stats for " + containerName)
 	driver.lock.Lock()
 	driver.LastFlush[containerName] = time.Now()
 	driver.lock.Unlock()
@@ -276,7 +277,7 @@ func (driver *wavefrontStorage) AddStats(cInfo *info.ContainerInfo, stats *info.
 			fmt.Fprintf(driver.Conn, line)
 		}
 		if driver.WfDebug {
-			glog.Infof(line)
+			klog.Infof(line)
 		}
 	}
 	return nil
