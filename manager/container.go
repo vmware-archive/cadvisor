@@ -626,20 +626,14 @@ func (c *containerData) updateStats() error {
 		nvidiaStatsErr = c.nvidiaCollector.UpdateStats(stats)
 	}
 
-	ref, err := c.handler.ContainerReference()
-	if err != nil {
-		// Ignore errors if the container is dead.
-		if !c.handler.Exists() {
-			return nil
-		}
-		return err
-	}
-
+	c.lock.Lock()
 	cInfo := info.ContainerInfo{
-		ContainerReference: ref,
+		ContainerReference: c.info.ContainerReference,
+		Spec: c.info.Spec,
 	}
+	c.lock.Unlock()
 
-	err = c.memoryCache.AddStats(&cInfo, stats)
+	err := c.memoryCache.AddStats(&cInfo, stats)
 	if err != nil {
 		return err
 	}
