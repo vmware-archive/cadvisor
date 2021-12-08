@@ -10,12 +10,8 @@ import (
 	"github.com/kr/text"
 )
 
-const (
-	limit = 50
-)
-
 type formatter struct {
-	x     interface{}
+	v     reflect.Value
 	force bool
 	quote bool
 }
@@ -30,18 +26,18 @@ type formatter struct {
 // format x according to the usual rules of package fmt.
 // In particular, if x satisfies fmt.Formatter, then x.Format will be called.
 func Formatter(x interface{}) (f fmt.Formatter) {
-	return formatter{x: x, quote: true}
+	return formatter{v: reflect.ValueOf(x), quote: true}
 }
 
 func (fo formatter) String() string {
-	return fmt.Sprint(fo.x) // unwrap it
+	return fmt.Sprint(fo.v.Interface()) // unwrap it
 }
 
 func (fo formatter) passThrough(f fmt.State, c rune) {
 	s := "%"
 	for i := 0; i < 128; i++ {
 		if f.Flag(i) {
-			s += string(i)
+			s += string(rune(i))
 		}
 	}
 	if w, ok := f.Width(); ok {
@@ -51,14 +47,14 @@ func (fo formatter) passThrough(f fmt.State, c rune) {
 		s += fmt.Sprintf(".%d", p)
 	}
 	s += string(c)
-	fmt.Fprintf(f, s, fo.x)
+	fmt.Fprintf(f, s, fo.v.Interface())
 }
 
 func (fo formatter) Format(f fmt.State, c rune) {
 	if fo.force || c == 'v' && f.Flag('#') && f.Flag(' ') {
 		w := tabwriter.NewWriter(f, 4, 4, 1, ' ', 0)
-		p := &printer{tw: w, Writer: w}
-		p.printValue(reflect.ValueOf(fo.x), true, fo.quote)
+		p := &printer{tw: w, Writer: w, visited: make(map[visit]int)}
+		p.printValue(fo.v, true, fo.quote)
 		w.Flush()
 		return
 	}
@@ -67,7 +63,9 @@ func (fo formatter) Format(f fmt.State, c rune) {
 
 type printer struct {
 	io.Writer
-	tw *tabwriter.Writer
+	tw      *tabwriter.Writer
+	visited map[visit]int
+	depth   int
 }
 
 func (p *printer) indent() *printer {
@@ -86,7 +84,19 @@ func (p *printer) printInline(v reflect.Value, x interface{}, showType bool) {
 	}
 }
 
+// printValue must keep track of already-printed pointer values to avoid
+// infinite recursion.
+type visit struct {
+	v   uintptr
+	typ reflect.Type
+}
+
 func (p *printer) printValue(v reflect.Value, showType, quote bool) {
+	if p.depth > 10 {
+		io.WriteString(p, "!%v(DEPTH EXCEEDED)")
+		return
+	}
+
 	switch v.Kind() {
 	case reflect.Bool:
 		p.printInline(v, v.Bool(), showType)
@@ -115,7 +125,6 @@ func (p *printer) printValue(v reflect.Value, showType, quote bool) {
 			}
 			keys := v.MapKeys()
 			for i := 0; i < v.Len(); i++ {
-				showTypeInStruct := true
 				k := keys[i]
 				mv := v.MapIndex(k)
 				pp.printValue(k, false, true)
@@ -123,7 +132,7 @@ func (p *printer) printValue(v reflect.Value, showType, quote bool) {
 				if expand {
 					writeByte(pp, '\t')
 				}
-				showTypeInStruct = t.Elem().Kind() == reflect.Interface
+				showTypeInStruct := t.Elem().Kind() == reflect.Interface
 				pp.printValue(mv, showTypeInStruct, true)
 				if expand {
 					io.WriteString(pp, ",\n")
@@ -138,6 +147,16 @@ func (p *printer) printValue(v reflect.Value, showType, quote bool) {
 		writeByte(p, '}')
 	case reflect.Struct:
 		t := v.Type()
+		if v.CanAddr() {
+			addr := v.UnsafeAddr()
+			vis := visit{addr, t}
+			if vd, ok := p.visited[vis]; ok && vd < p.depth {
+				p.fmtString(t.String()+"{(CYCLIC REFERENCE)}", false)
+				break // don't print v again
+			}
+			p.visited[vis] = p.depth
+		}
+
 		if showType {
 			io.WriteString(p, t.String())
 		}
@@ -176,7 +195,9 @@ func (p *printer) printValue(v reflect.Value, showType, quote bool) {
 		case e.Kind() == reflect.Invalid:
 			io.WriteString(p, "nil")
 		case e.IsValid():
-			p.printValue(e, showType, true)
+			pp := *p
+			pp.depth++
+			pp.printValue(e, showType, true)
 		default:
 			io.WriteString(p, v.Type().String())
 			io.WriteString(p, "(nil)")
@@ -221,8 +242,10 @@ func (p *printer) printValue(v reflect.Value, showType, quote bool) {
 			io.WriteString(p, v.Type().String())
 			io.WriteString(p, ")(nil)")
 		} else {
-			writeByte(p, '&')
-			p.printValue(e, true, true)
+			pp := *p
+			pp.depth++
+			writeByte(pp, '&')
+			pp.printValue(e, true, true)
 		}
 	case reflect.Chan:
 		x := v.Pointer()
@@ -289,11 +312,6 @@ func (p *printer) fmtString(s string, quote bool) {
 		s = strconv.Quote(s)
 	}
 	io.WriteString(p, s)
-}
-
-func tryDeepEqual(a, b interface{}) bool {
-	defer func() { recover() }()
-	return reflect.DeepEqual(a, b)
 }
 
 func writeByte(w io.Writer, b byte) {

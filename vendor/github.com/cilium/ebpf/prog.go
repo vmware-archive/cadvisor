@@ -2,22 +2,28 @@ package ebpf
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"math"
+	"path/filepath"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/internal"
+	"github.com/cilium/ebpf/internal/btf"
 	"github.com/cilium/ebpf/internal/unix"
-
-	"github.com/pkg/errors"
 )
 
-var (
-	errNotSupported = errors.New("ebpf: not supported by kernel")
-)
+// ErrNotSupported is returned whenever the kernel doesn't support a feature.
+var ErrNotSupported = internal.ErrNotSupported
+
+var errUnsatisfiedReference = errors.New("unsatisfied reference")
+
+// ProgramID represents the unique ID of an eBPF program.
+type ProgramID uint32
 
 const (
 	// Number of bytes to pad the output buffer for BPF_PROG_TEST_RUN.
@@ -38,18 +44,48 @@ type ProgramOptions struct {
 	// Controls the output buffer size for the verifier. Defaults to
 	// DefaultVerifierLogSize.
 	LogSize int
+	// An ELF containing the target BTF for this program. It is used both to
+	// find the correct function to trace and to apply CO-RE relocations.
+	// This is useful in environments where the kernel BTF is not available
+	// (containers) or where it is in a non-standard location. Defaults to
+	// use the kernel BTF from a well-known location.
+	TargetBTF io.ReaderAt
 }
 
-// ProgramSpec defines a Program
+// ProgramSpec defines a Program.
 type ProgramSpec struct {
 	// Name is passed to the kernel as a debug aid. Must only contain
 	// alpha numeric and '_' characters.
-	Name          string
-	Type          ProgramType
-	AttachType    AttachType
-	Instructions  asm.Instructions
-	License       string
+	Name string
+	// Type determines at which hook in the kernel a program will run.
+	Type       ProgramType
+	AttachType AttachType
+	// Name of a kernel data structure to attach to. It's interpretation
+	// depends on Type and AttachType.
+	AttachTo     string
+	Instructions asm.Instructions
+	// Flags is passed to the kernel and specifies additional program
+	// load attributes.
+	Flags uint32
+	// License of the program. Some helpers are only available if
+	// the license is deemed compatible with the GPL.
+	//
+	// See https://www.kernel.org/doc/html/latest/process/license-rules.html#id1
+	License string
+
+	// Version used by Kprobe programs.
+	//
+	// Deprecated on kernels 5.0 and later. Leave empty to let the library
+	// detect this value automatically.
 	KernelVersion uint32
+
+	// The BTF associated with this program. Changing Instructions
+	// will most likely invalidate the contained data, and may
+	// result in errors when attempting to load it into the kernel.
+	BTF *btf.Program
+
+	// The byte order this program was compiled for, may be nil.
+	ByteOrder binary.ByteOrder
 }
 
 // Copy returns a copy of the spec.
@@ -64,6 +100,13 @@ func (ps *ProgramSpec) Copy() *ProgramSpec {
 	return &cpy
 }
 
+// Tag calculates the kernel tag for a series of instructions.
+//
+// Use asm.Instructions.Tag if you need to calculate for non-native endianness.
+func (ps *ProgramSpec) Tag() (string, error) {
+	return ps.Instructions.Tag(internal.NativeEndian)
+}
+
 // Program represents BPF program loaded into the kernel.
 //
 // It is not safe to close a Program which is used by other goroutines.
@@ -72,9 +115,10 @@ type Program struct {
 	// otherwise it is empty.
 	VerifierLog string
 
-	fd   *bpfFD
-	name string
-	abi  ProgramABI
+	fd         *internal.FD
+	name       string
+	pinnedPath string
+	typ        ProgramType
 }
 
 // NewProgram creates a new Program.
@@ -90,9 +134,121 @@ func NewProgram(spec *ProgramSpec) (*Program, error) {
 // Loading a program for the first time will perform
 // feature detection by loading small, temporary programs.
 func NewProgramWithOptions(spec *ProgramSpec, opts ProgramOptions) (*Program, error) {
-	attr, err := convertProgramSpec(spec, haveObjName.Result())
+	handles := newHandleCache()
+	defer handles.close()
+
+	prog, err := newProgramWithOptions(spec, opts, handles)
+	if errors.Is(err, errUnsatisfiedReference) {
+		return nil, fmt.Errorf("cannot load program without loading its whole collection: %w", err)
+	}
+	return prog, err
+}
+
+func newProgramWithOptions(spec *ProgramSpec, opts ProgramOptions, handles *handleCache) (*Program, error) {
+	if len(spec.Instructions) == 0 {
+		return nil, errors.New("Instructions cannot be empty")
+	}
+
+	if spec.ByteOrder != nil && spec.ByteOrder != internal.NativeEndian {
+		return nil, fmt.Errorf("can't load %s program on %s", spec.ByteOrder, internal.NativeEndian)
+	}
+
+	// Kernels before 5.0 (6c4fc209fcf9 "bpf: remove useless version check for prog load")
+	// require the version field to be set to the value of the KERNEL_VERSION
+	// macro for kprobe-type programs.
+	// Overwrite Kprobe program version if set to zero or the magic version constant.
+	kv := spec.KernelVersion
+	if spec.Type == Kprobe && (kv == 0 || kv == internal.MagicKernelVersion) {
+		v, err := internal.KernelVersion()
+		if err != nil {
+			return nil, fmt.Errorf("detecting kernel version: %w", err)
+		}
+		kv = v.Kernel()
+	}
+
+	attr := &bpfProgLoadAttr{
+		progType:           spec.Type,
+		progFlags:          spec.Flags,
+		expectedAttachType: spec.AttachType,
+		license:            internal.NewStringPointer(spec.License),
+		kernelVersion:      kv,
+	}
+
+	if haveObjName() == nil {
+		attr.progName = internal.NewBPFObjName(spec.Name)
+	}
+
+	var err error
+	var targetBTF *btf.Spec
+	if opts.TargetBTF != nil {
+		targetBTF, err = handles.btfSpec(opts.TargetBTF)
+		if err != nil {
+			return nil, fmt.Errorf("load target BTF: %w", err)
+		}
+	}
+
+	var btfDisabled bool
+	var core btf.COREFixups
+	if spec.BTF != nil {
+		core, err = btf.ProgramFixups(spec.BTF, targetBTF)
+		if err != nil {
+			return nil, fmt.Errorf("CO-RE relocations: %w", err)
+		}
+
+		handle, err := handles.btfHandle(btf.ProgramSpec(spec.BTF))
+		btfDisabled = errors.Is(err, btf.ErrNotSupported)
+		if err != nil && !btfDisabled {
+			return nil, fmt.Errorf("load BTF: %w", err)
+		}
+
+		if handle != nil {
+			attr.progBTFFd = uint32(handle.FD())
+
+			recSize, bytes, err := btf.ProgramLineInfos(spec.BTF)
+			if err != nil {
+				return nil, fmt.Errorf("get BTF line infos: %w", err)
+			}
+			attr.lineInfoRecSize = recSize
+			attr.lineInfoCnt = uint32(uint64(len(bytes)) / uint64(recSize))
+			attr.lineInfo = internal.NewSlicePointer(bytes)
+
+			recSize, bytes, err = btf.ProgramFuncInfos(spec.BTF)
+			if err != nil {
+				return nil, fmt.Errorf("get BTF function infos: %w", err)
+			}
+			attr.funcInfoRecSize = recSize
+			attr.funcInfoCnt = uint32(uint64(len(bytes)) / uint64(recSize))
+			attr.funcInfo = internal.NewSlicePointer(bytes)
+		}
+	}
+
+	insns, err := core.Apply(spec.Instructions)
+	if err != nil {
+		return nil, fmt.Errorf("CO-RE fixup: %w", err)
+	}
+
+	if err := fixupJumpsAndCalls(insns); err != nil {
+		return nil, err
+	}
+
+	buf := bytes.NewBuffer(make([]byte, 0, len(spec.Instructions)*asm.InstructionSize))
+	err = insns.Marshal(buf, internal.NativeEndian)
 	if err != nil {
 		return nil, err
+	}
+
+	bytecode := buf.Bytes()
+	attr.instructions = internal.NewSlicePointer(bytecode)
+	attr.insCount = uint32(len(bytecode) / asm.InstructionSize)
+
+	if spec.AttachTo != "" {
+		target, err := resolveBTFType(targetBTF, spec.AttachTo, spec.Type, spec.AttachType)
+		if err != nil {
+			return nil, err
+		}
+		if target != nil {
+			attr.attachBTFID = target.ID()
+		}
 	}
 
 	logSize := DefaultVerifierLogSize
@@ -105,117 +261,97 @@ func NewProgramWithOptions(spec *ProgramSpec, opts ProgramOptions) (*Program, er
 		logBuf = make([]byte, logSize)
 		attr.logLevel = opts.LogLevel
 		attr.logSize = uint32(len(logBuf))
-		attr.logBuf = newPtr(unsafe.Pointer(&logBuf[0]))
+		attr.logBuf = internal.NewSlicePointer(logBuf)
 	}
 
 	fd, err := bpfProgLoad(attr)
 	if err == nil {
-		prog := newProgram(fd, spec.Name, &ProgramABI{spec.Type})
-		prog.VerifierLog = convertCString(logBuf)
-		return prog, nil
+		return &Program{internal.CString(logBuf), fd, spec.Name, "", spec.Type}, nil
 	}
 
-	truncated := errors.Cause(err) == unix.ENOSPC
-	if opts.LogLevel == 0 {
+	logErr := err
+	if opts.LogLevel == 0 && opts.LogSize >= 0 {
 		// Re-run with the verifier enabled to get better error messages.
 		logBuf = make([]byte, logSize)
 		attr.logLevel = 1
 		attr.logSize = uint32(len(logBuf))
-		attr.logBuf = newPtr(unsafe.Pointer(&logBuf[0]))
+		attr.logBuf = internal.NewSlicePointer(logBuf)
 
-		_, nerr := bpfProgLoad(attr)
-		truncated = errors.Cause(nerr) == unix.ENOSPC
+		_, logErr = bpfProgLoad(attr)
 	}
 
-	logs := convertCString(logBuf)
-	if truncated {
-		logs += "\n(truncated...)"
+	if errors.Is(logErr, unix.EPERM) && logBuf[0] == 0 {
+		// EPERM due to RLIMIT_MEMLOCK happens before the verifier, so we can
+		// check that the log is empty to reduce false positives.
+		return nil, fmt.Errorf("load program: RLIMIT_MEMLOCK may be too low: %w", logErr)
 	}
 
-	return nil, &loadError{err, logs}
+	err = internal.ErrorWithLog(err, logBuf, logErr)
+	if btfDisabled {
+		return nil, fmt.Errorf("load program without BTF: %w", err)
+	}
+	return nil, fmt.Errorf("load program: %w", err)
 }
 
 // NewProgramFromFD creates a program from a raw fd.
 //
 // You should not use fd after calling this function.
+//
+// Requires at least Linux 4.10.
 func NewProgramFromFD(fd int) (*Program, error) {
 	if fd < 0 {
 		return nil, errors.New("invalid fd")
 	}
-	bpfFd := newBPFFD(uint32(fd))
 
-	name, abi, err := newProgramABIFromFd(bpfFd)
-	if err != nil {
-		bpfFd.forget()
-		return nil, err
-	}
-
-	return newProgram(bpfFd, name, abi), nil
+	return newProgramFromFD(internal.NewFD(uint32(fd)))
 }
 
-func newProgram(fd *bpfFD, name string, abi *ProgramABI) *Program {
-	return &Program{
-		name: name,
-		fd:   fd,
-		abi:  *abi,
+// NewProgramFromID returns the program for a given id.
+//
+// Returns ErrNotExist, if there is no eBPF program with the given id.
+func NewProgramFromID(id ProgramID) (*Program, error) {
+	fd, err := bpfObjGetFDByID(internal.BPF_PROG_GET_FD_BY_ID, uint32(id))
+	if err != nil {
+		return nil, fmt.Errorf("get program by id: %w", err)
 	}
+
+	return newProgramFromFD(fd)
 }
 
-func convertProgramSpec(spec *ProgramSpec, includeName bool) (*bpfProgLoadAttr, error) {
-	if len(spec.Instructions) == 0 {
-		return nil, errors.New("Instructions cannot be empty")
-	}
-
-	if len(spec.License) == 0 {
-		return nil, errors.New("License cannot be empty")
-	}
-
-	buf := bytes.NewBuffer(make([]byte, 0, len(spec.Instructions)*asm.InstructionSize))
-	err := spec.Instructions.Marshal(buf, internal.NativeEndian)
+func newProgramFromFD(fd *internal.FD) (*Program, error) {
+	info, err := newProgramInfoFromFd(fd)
 	if err != nil {
-		return nil, err
+		fd.Close()
+		return nil, fmt.Errorf("discover program type: %w", err)
 	}
 
-	bytecode := buf.Bytes()
-	insCount := uint32(len(bytecode) / asm.InstructionSize)
-	lic := []byte(spec.License)
-	attr := &bpfProgLoadAttr{
-		progType:           spec.Type,
-		expectedAttachType: spec.AttachType,
-		insCount:           insCount,
-		instructions:       newPtr(unsafe.Pointer(&bytecode[0])),
-		license:            newPtr(unsafe.Pointer(&lic[0])),
-	}
-
-	name, err := newBPFObjName(spec.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	if includeName {
-		attr.progName = name
-	}
-
-	return attr, nil
+	return &Program{"", fd, "", "", info.Type}, nil
 }
 
 func (p *Program) String() string {
 	if p.name != "" {
-		return fmt.Sprintf("%s(%s)#%v", p.abi.Type, p.name, p.fd)
+		return fmt.Sprintf("%s(%s)#%v", p.typ, p.name, p.fd)
 	}
-	return fmt.Sprintf("%s#%v", p.abi.Type, p.fd)
+	return fmt.Sprintf("%s(%v)", p.typ, p.fd)
 }
 
-// ABI gets the ABI of the Program
-func (p *Program) ABI() ProgramABI {
-	return p.abi
+// Type returns the underlying type of the program.
+func (p *Program) Type() ProgramType {
+	return p.typ
+}
+
+// Info returns metadata about the program.
+//
+// Requires at least 4.10.
+func (p *Program) Info() (*ProgramInfo, error) {
+	return newProgramInfoFromFd(p.fd)
 }
 
 // FD gets the file descriptor of the Program.
 //
 // It is invalid to call this function after Close has been called.
 func (p *Program) FD() int {
-	fd, err := p.fd.value()
+	fd, err := p.fd.Value()
 	if err != nil {
 		// Best effort: -1 is the number most likely to be an
 		// invalid file descriptor.
@@ -235,19 +371,45 @@ func (p *Program) Clone() (*Program, error) {
 		return nil, nil
 	}
 
-	dup, err := p.fd.dup()
+	dup, err := p.fd.Dup()
 	if err != nil {
-		return nil, errors.Wrap(err, "can't clone program")
+		return nil, fmt.Errorf("can't clone program: %w", err)
 	}
 
-	return newProgram(dup, p.name, &p.abi), nil
+	return &Program{p.VerifierLog, dup, p.name, "", p.typ}, nil
 }
 
-// Pin persists the Program past the lifetime of the process that created it
+// Pin persists the Program on the BPF virtual file system past the lifetime of
+// the process that created it
 //
-// This requires bpffs to be mounted above fileName. See http://cilium.readthedocs.io/en/doc-1.0/kubernetes/install/#mounting-the-bpf-fs-optional
+// Calling Pin on a previously pinned program will overwrite the path, except when
+// the new path already exists. Re-pinning across filesystems is not supported.
+//
+// This requires bpffs to be mounted above fileName. See https://docs.cilium.io/en/k8s-doc/admin/#admin-mount-bpffs
 func (p *Program) Pin(fileName string) error {
-	return errors.Wrap(bpfPinObject(fileName, p.fd), "can't pin program")
+	if err := internal.Pin(p.pinnedPath, fileName, p.fd); err != nil {
+		return err
+	}
+	p.pinnedPath = fileName
+	return nil
+}
+
+// Unpin removes the persisted state for the Program from the BPF virtual filesystem.
+//
+// Failed calls to Unpin will not alter the state returned by IsPinned.
+//
+// Unpinning an unpinned Program returns nil.
+func (p *Program) Unpin() error {
+	if err := internal.Unpin(p.pinnedPath); err != nil {
+		return err
+	}
+	p.pinnedPath = ""
+	return nil
+}
+
+// IsPinned returns true if the Program has a non-empty pinned path.
+func (p *Program) IsPinned() bool {
+	return p.pinnedPath != ""
 }
 
 // Close unloads the program from the kernel.
@@ -256,7 +418,7 @@ func (p *Program) Close() error {
 		return nil
 	}
 
-	return p.fd.close()
+	return p.fd.Close()
 }
 
 // Test runs the Program in the kernel with the given input and returns the
@@ -267,57 +429,69 @@ func (p *Program) Close() error {
 //
 // This function requires at least Linux 4.12.
 func (p *Program) Test(in []byte) (uint32, []byte, error) {
-	ret, out, _, err := p.testRun(in, 1)
-	return ret, out, err
+	ret, out, _, err := p.testRun(in, 1, nil)
+	if err != nil {
+		return ret, nil, fmt.Errorf("can't test program: %w", err)
+	}
+	return ret, out, nil
 }
 
 // Benchmark runs the Program with the given input for a number of times
 // and returns the time taken per iteration.
 //
-// The returned value is the return value of the last execution of
-// the program.
+// Returns the result of the last execution of the program and the time per
+// run or an error. reset is called whenever the benchmark syscall is
+// interrupted, and should be set to testing.B.ResetTimer or similar.
+//
+// Note: profiling a call to this function will skew it's results, see
+// https://github.com/cilium/ebpf/issues/24
 //
 // This function requires at least Linux 4.12.
-func (p *Program) Benchmark(in []byte, repeat int) (uint32, time.Duration, error) {
-	ret, _, total, err := p.testRun(in, repeat)
-	return ret, total, err
+func (p *Program) Benchmark(in []byte, repeat int, reset func()) (uint32, time.Duration, error) {
+	ret, _, total, err := p.testRun(in, repeat, reset)
+	if err != nil {
+		return ret, total, fmt.Errorf("can't benchmark program: %w", err)
+	}
+	return ret, total, nil
 }
 
-var noProgTestRun = featureTest{
-	Fn: func() bool {
-		prog, err := NewProgram(&ProgramSpec{
-			Type: SocketFilter,
-			Instructions: asm.Instructions{
-				asm.LoadImm(asm.R0, 0, asm.DWord),
-				asm.Return(),
-			},
-			License: "MIT",
-		})
-		if err != nil {
-			// This may be because we lack sufficient permissions, etc.
-			return false
-		}
-		defer prog.Close()
+var haveProgTestRun = internal.FeatureTest("BPF_PROG_TEST_RUN", "4.12", func() error {
+	prog, err := NewProgram(&ProgramSpec{
+		Type: SocketFilter,
+		Instructions: asm.Instructions{
+			asm.LoadImm(asm.R0, 0, asm.DWord),
+			asm.Return(),
+		},
+		License: "MIT",
+	})
+	if err != nil {
+		// This may be because we lack sufficient permissions, etc.
+		return err
+	}
+	defer prog.Close()
 
-		fd, err := prog.fd.value()
-		if err != nil {
-			return false
-		}
+	// Programs require at least 14 bytes input
+	in := make([]byte, 14)
+	attr := bpfProgTestRunAttr{
+		fd:         uint32(prog.FD()),
+		dataSizeIn: uint32(len(in)),
+		dataIn:     internal.NewSlicePointer(in),
+	}
 
-		// Programs require at least 14 bytes input
-		in := make([]byte, 14)
-		attr := bpfProgTestRunAttr{
-			fd:         fd,
-			dataSizeIn: uint32(len(in)),
-			dataIn:     newPtr(unsafe.Pointer(&in[0])),
-		}
+	err = bpfProgTestRun(&attr)
+	if errors.Is(err, unix.EINVAL) {
+		// Check for EINVAL specifically, rather than err != nil since we
+		// otherwise misdetect due to insufficient permissions.
+		return internal.ErrNotSupported
+	}
+	if errors.Is(err, unix.EINTR) {
+		// We know that PROG_TEST_RUN is supported if we get EINTR.
+		return nil
+	}
+	return err
+})
 
-		_, err = bpfCall(_ProgTestRun, unsafe.Pointer(&attr), unsafe.Sizeof(attr))
-		return errors.Cause(err) == unix.EINVAL
-	},
-}
-
-func (p *Program) testRun(in []byte, repeat int) (uint32, []byte, time.Duration, error) {
+func (p *Program) testRun(in []byte, repeat int, reset func()) (uint32, []byte, time.Duration, error) {
 	if uint(repeat) > math.MaxUint32 {
 		return 0, nil, 0, fmt.Errorf("repeat is too high")
 	}
@@ -330,8 +504,8 @@ func (p *Program) testRun(in []byte, repeat int) (uint32, []byte, time.Duration,
 		return 0, nil, 0, fmt.Errorf("input is too long")
 	}
 
-	if noProgTestRun.Result() {
-		return 0, nil, 0, errNotSupported
+	if err := haveProgTestRun(); err != nil {
+		return 0, nil, 0, err
 	}
 
 	// Older kernels ignore the dataSizeOut argument when copying to user space.
@@ -341,7 +515,7 @@ func (p *Program) testRun(in []byte, repeat int) (uint32, []byte, time.Duration,
 	// See https://patchwork.ozlabs.org/cover/1006822/
 	out := make([]byte, len(in)+outputPad)
 
-	fd, err := p.fd.value()
+	fd, err := p.fd.Value()
 	if err != nil {
 		return 0, nil, 0, err
 	}
@@ -350,14 +524,25 @@ func (p *Program) testRun(in []byte, repeat int) (uint32, []byte, time.Duration,
 		fd:          fd,
 		dataSizeIn:  uint32(len(in)),
 		dataSizeOut: uint32(len(out)),
-		dataIn:      newPtr(unsafe.Pointer(&in[0])),
-		dataOut:     newPtr(unsafe.Pointer(&out[0])),
+		dataIn:      internal.NewSlicePointer(in),
+		dataOut:     internal.NewSlicePointer(out),
 		repeat:      uint32(repeat),
 	}
 
-	_, err = bpfCall(_ProgTestRun, unsafe.Pointer(&attr), unsafe.Sizeof(attr))
-	if err != nil {
-		return 0, nil, 0, errors.Wrap(err, "can't run test")
+	for {
+		err = bpfProgTestRun(&attr)
+		if err == nil {
+			break
+		}
+
+		if errors.Is(err, unix.EINTR) {
+			if reset != nil {
+				reset()
+			}
+			continue
+		}
+
+		return 0, nil, 0, fmt.Errorf("can't run test: %w", err)
 	}
 
 	if int(attr.dataSizeOut) > cap(out) {
@@ -379,23 +564,15 @@ func unmarshalProgram(buf []byte) (*Program, error) {
 	// Looking up an entry in a nested map or prog array returns an id,
 	// not an fd.
 	id := internal.NativeEndian.Uint32(buf)
-	fd, err := bpfGetProgramFDByID(id)
-	if err != nil {
-		return nil, err
-	}
-
-	name, abi, err := newProgramABIFromFd(fd)
-	if err != nil {
-		_ = fd.close()
-		return nil, err
-	}
-
-	return newProgram(fd, name, abi), nil
+	return NewProgramFromID(ProgramID(id))
 }
 
-// MarshalBinary implements BinaryMarshaler.
-func (p *Program) MarshalBinary() ([]byte, error) {
-	value, err := p.fd.value()
+func marshalProgram(p *Program, length int) ([]byte, error) {
+	if length != 4 {
+		return nil, fmt.Errorf("can't marshal program to %d bytes", length)
+	}
+
+	value, err := p.fd.Value()
 	if err != nil {
 		return nil, err
 	}
@@ -405,71 +582,80 @@ func (p *Program) MarshalBinary() ([]byte, error) {
 	return buf, nil
 }
 
-// Attach a Program to a container object fd
+// Attach a Program.
+//
+// Deprecated: use link.RawAttachProgram instead.
 func (p *Program) Attach(fd int, typ AttachType, flags AttachFlags) error {
 	if fd < 0 {
 		return errors.New("invalid fd")
 	}
 
-	pfd, err := p.fd.value()
+	pfd, err := p.fd.Value()
 	if err != nil {
 		return err
 	}
 
-	attr := bpfProgAlterAttr{
-		targetFd:    uint32(fd),
-		attachBpfFd: pfd,
-		attachType:  uint32(typ),
-		attachFlags: uint32(flags),
+	attr := internal.BPFProgAttachAttr{
+		TargetFd:    uint32(fd),
+		AttachBpfFd: pfd,
+		AttachType:  uint32(typ),
+		AttachFlags: uint32(flags),
 	}
 
-	return bpfProgAlter(_ProgAttach, &attr)
+	return internal.BPFProgAttach(&attr)
 }
 
-// Detach a Program from a container object fd
+// Detach a Program.
+//
+// Deprecated: use link.RawDetachProgram instead.
 func (p *Program) Detach(fd int, typ AttachType, flags AttachFlags) error {
 	if fd < 0 {
 		return errors.New("invalid fd")
 	}
 
-	pfd, err := p.fd.value()
+	if flags != 0 {
+		return errors.New("flags must be zero")
+	}
+
+	pfd, err := p.fd.Value()
 	if err != nil {
 		return err
 	}
 
-	attr := bpfProgAlterAttr{
-		targetFd:    uint32(fd),
-		attachBpfFd: pfd,
-		attachType:  uint32(typ),
-		attachFlags: uint32(flags),
+	attr := internal.BPFProgDetachAttr{
+		TargetFd:    uint32(fd),
+		AttachBpfFd: pfd,
+		AttachType:  uint32(typ),
 	}
 
-	return bpfProgAlter(_ProgDetach, &attr)
+	return internal.BPFProgDetach(&attr)
 }
 
 // LoadPinnedProgram loads a Program from a BPF file.
-func LoadPinnedProgram(fileName string) (*Program, error) {
-	fd, err := bpfGetObject(fileName)
+//
+// Requires at least Linux 4.11.
+func LoadPinnedProgram(fileName string, opts *LoadPinOptions) (*Program, error) {
+	fd, err := internal.BPFObjGet(fileName, opts.Marshal())
 	if err != nil {
 		return nil, err
 	}
 
-	name, abi, err := newProgramABIFromFd(fd)
+	info, err := newProgramInfoFromFd(fd)
 	if err != nil {
-		_ = fd.close()
-		return nil, err
+		_ = fd.Close()
+		return nil, fmt.Errorf("info for %s: %w", fileName, err)
 	}
 
-	return newProgram(fd, name, abi), nil
+	return &Program{"", fd, filepath.Base(fileName), fileName, info.Type}, nil
 }
 
-// SanitizeName replaces all invalid characters in name.
+// SanitizeName replaces all invalid characters in name with replacement.
+// Passing a negative value for replacement will delete characters instead
+// of replacing them. Use this to automatically generate valid names for maps
+// and programs at runtime.
 //
-// Use this to automatically generate valid names for maps and
-// programs at run time.
-//
-// Passing a negative value for replacement will delete characters
-// instead of replacing them.
+// The set of allowed characters depends on the running kernel version.
+// Dots are only allowed as of kernel 5.2.
 func SanitizeName(name string, replacement rune) string {
 	return strings.Map(func(char rune) rune {
 		if invalidBPFObjNameChar(char) {
@@ -479,24 +665,64 @@ func SanitizeName(name string, replacement rune) string {
 	}, name)
 }
 
-type loadError struct {
-	cause       error
-	verifierLog string
+// ProgramGetNextID returns the ID of the next eBPF program.
+//
+// Returns ErrNotExist, if there is no next eBPF program.
+func ProgramGetNextID(startID ProgramID) (ProgramID, error) {
+	id, err := objGetNextID(internal.BPF_PROG_GET_NEXT_ID, uint32(startID))
+	return ProgramID(id), err
 }
 
-func (le *loadError) Error() string {
-	if le.verifierLog == "" {
-		return fmt.Sprintf("failed to load program: %s", le.cause)
+// ID returns the systemwide unique ID of the program.
+//
+// Deprecated: use ProgramInfo.ID() instead.
+func (p *Program) ID() (ProgramID, error) {
+	info, err := bpfGetProgInfoByFD(p.fd)
+	if err != nil {
+		return ProgramID(0), err
 	}
-	return fmt.Sprintf("failed to load program: %s: %s", le.cause, le.verifierLog)
+	return ProgramID(info.id), nil
 }
 
-func (le *loadError) Cause() error {
-	return le.cause
-}
+func resolveBTFType(kernel *btf.Spec, name string, progType ProgramType, attachType AttachType) (btf.Type, error) {
+	type match struct {
+		p ProgramType
+		a AttachType
+	}
 
-// IsNotSupported returns true if an error occurred because
-// the kernel does not have support for a specific feature.
-func IsNotSupported(err error) bool {
-	return errors.Cause(err) == errNotSupported
+	var target btf.Type
+	var typeName, featureName string
+	switch (match{progType, attachType}) {
+	case match{LSM, AttachLSMMac}:
+		target = new(btf.Func)
+		typeName = "bpf_lsm_" + name
+		featureName = name + " LSM hook"
+
+	case match{Tracing, AttachTraceIter}:
+		target = new(btf.Func)
+		typeName = "bpf_iter_" + name
+		featureName = name + " iterator"
+
+	default:
+		return nil, nil
+	}
+
+	if kernel == nil {
+		var err error
+		kernel, err = btf.LoadKernelSpec()
+		if err != nil {
+			return nil, fmt.Errorf("load kernel spec: %w", err)
+		}
+	}
+
+	err := kernel.FindType(typeName, target)
+	if errors.Is(err, btf.ErrNotFound) {
+		return nil, &internal.UnsupportedFeatureError{
+			Name: featureName,
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolve BTF for %s: %w", featureName, err)
+	}
+	return target, nil
 }
