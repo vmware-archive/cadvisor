@@ -41,14 +41,17 @@ github.com/aws/aws-sdk-go/service/sts
 github.com/beorn7/perks/quantile
 # github.com/blang/semver v3.1.0+incompatible
 github.com/blang/semver
-# github.com/checkpoint-restore/go-criu v0.0.0-20190109184317-bdb7599cd87b
-github.com/checkpoint-restore/go-criu/rpc
-# github.com/cilium/ebpf v0.0.0-20191113100448-d9fb101ca1fb
+# github.com/checkpoint-restore/go-criu/v5 v5.3.0
+github.com/checkpoint-restore/go-criu/v5
+github.com/checkpoint-restore/go-criu/v5/rpc
+# github.com/cilium/ebpf v0.7.0
 github.com/cilium/ebpf
 github.com/cilium/ebpf/asm
 github.com/cilium/ebpf/internal
+github.com/cilium/ebpf/internal/btf
 github.com/cilium/ebpf/internal/unix
-# github.com/containerd/console v0.0.0-20180822173158-c12b1e7919c1
+github.com/cilium/ebpf/link
+# github.com/containerd/console v1.0.3
 github.com/containerd/console
 # github.com/containerd/containerd v1.3.3
 github.com/containerd/containerd/api/services/containers/v1
@@ -64,9 +67,9 @@ github.com/containerd/containerd/pkg/dialer
 github.com/containerd/ttrpc
 # github.com/containerd/typeurl v0.0.0-20190911142611-5eb25027c9fd
 github.com/containerd/typeurl
-# github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e
-github.com/coreos/go-systemd/dbus
-# github.com/cyphar/filepath-securejoin v0.2.2-0.20170720062807-ae69057f2299
+# github.com/coreos/go-systemd/v22 v22.3.2
+github.com/coreos/go-systemd/v22/dbus
+# github.com/cyphar/filepath-securejoin v0.2.3
 github.com/cyphar/filepath-securejoin
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
@@ -111,15 +114,15 @@ github.com/garyburd/redigo/internal
 github.com/garyburd/redigo/redis
 # github.com/go-ini/ini v1.9.0
 github.com/go-ini/ini
-# github.com/godbus/dbus v0.0.0-20190422162347-ade71ed3457e
-github.com/godbus/dbus
+# github.com/godbus/dbus/v5 v5.0.6
+github.com/godbus/dbus/v5
 # github.com/gogo/protobuf v1.3.1
 github.com/gogo/protobuf/gogoproto
 github.com/gogo/protobuf/proto
 github.com/gogo/protobuf/protoc-gen-gogo/descriptor
 github.com/gogo/protobuf/sortkeys
 github.com/gogo/protobuf/types
-# github.com/golang/protobuf v1.3.2
+# github.com/golang/protobuf v1.5.0
 github.com/golang/protobuf/proto
 github.com/golang/protobuf/ptypes
 github.com/golang/protobuf/ptypes/any
@@ -139,11 +142,9 @@ github.com/jmespath/go-jmespath
 github.com/karrick/godirwalk
 # github.com/klauspost/crc32 v0.0.0-20151223135126-a3b15ae34567
 github.com/klauspost/crc32
-# github.com/konsorten/go-windows-terminal-sequences v1.0.2
-github.com/konsorten/go-windows-terminal-sequences
-# github.com/kr/pretty v0.0.0-20140723054909-088c856450c0
+# github.com/kr/pretty v0.2.1
 github.com/kr/pretty
-# github.com/kr/text v0.0.0-20130911015532-6807e777504f
+# github.com/kr/text v0.1.0
 github.com/kr/text
 # github.com/mattn/go-shellwords v1.0.4-0.20180201004752-39dbbfa24bbc
 github.com/mattn/go-shellwords
@@ -168,40 +169,48 @@ github.com/mesos/mesos-go/api/v1/lib/roles
 github.com/mindprince/gonvml
 # github.com/mistifyio/go-zfs v2.1.2-0.20190413222219-f784269be439+incompatible
 github.com/mistifyio/go-zfs
-# github.com/mrunalp/fileutils v0.0.0-20160930181131-4ee1cc9a8058
+# github.com/moby/sys/mountinfo v0.5.0
+github.com/moby/sys/mountinfo
+# github.com/mrunalp/fileutils v0.5.0
 github.com/mrunalp/fileutils
 # github.com/opencontainers/go-digest v1.0.0-rc1
 github.com/opencontainers/go-digest
 # github.com/opencontainers/image-spec v1.0.1
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/opencontainers/runc v1.0.0-rc10
+# github.com/opencontainers/runc v1.1.2
 github.com/opencontainers/runc/libcontainer
 github.com/opencontainers/runc/libcontainer/apparmor
+github.com/opencontainers/runc/libcontainer/capabilities
 github.com/opencontainers/runc/libcontainer/cgroups
+github.com/opencontainers/runc/libcontainer/cgroups/devices
 github.com/opencontainers/runc/libcontainer/cgroups/ebpf
 github.com/opencontainers/runc/libcontainer/cgroups/ebpf/devicefilter
 github.com/opencontainers/runc/libcontainer/cgroups/fs
 github.com/opencontainers/runc/libcontainer/cgroups/fs2
 github.com/opencontainers/runc/libcontainer/cgroups/fscommon
+github.com/opencontainers/runc/libcontainer/cgroups/manager
 github.com/opencontainers/runc/libcontainer/cgroups/systemd
 github.com/opencontainers/runc/libcontainer/configs
 github.com/opencontainers/runc/libcontainer/configs/validate
+github.com/opencontainers/runc/libcontainer/devices
 github.com/opencontainers/runc/libcontainer/intelrdt
 github.com/opencontainers/runc/libcontainer/keys
 github.com/opencontainers/runc/libcontainer/logs
-github.com/opencontainers/runc/libcontainer/mount
 github.com/opencontainers/runc/libcontainer/seccomp
-github.com/opencontainers/runc/libcontainer/stacktrace
+github.com/opencontainers/runc/libcontainer/seccomp/patchbpf
 github.com/opencontainers/runc/libcontainer/system
 github.com/opencontainers/runc/libcontainer/user
+github.com/opencontainers/runc/libcontainer/userns
 github.com/opencontainers/runc/libcontainer/utils
 github.com/opencontainers/runc/types
-# github.com/opencontainers/runtime-spec v1.0.1
+# github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417
 github.com/opencontainers/runtime-spec/specs-go
-# github.com/opencontainers/selinux v1.3.3
+# github.com/opencontainers/selinux v1.10.0
 github.com/opencontainers/selinux/go-selinux
 github.com/opencontainers/selinux/go-selinux/label
+github.com/opencontainers/selinux/pkg/pwalk
+github.com/opencontainers/selinux/pkg/pwalkdir
 # github.com/pkg/errors v0.8.1
 github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
@@ -223,9 +232,9 @@ github.com/prometheus/common/model
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
 github.com/prometheus/procfs/internal/util
-# github.com/seccomp/libseccomp-golang v0.0.0-20150813023252-1b506fc7c24e
+# github.com/seccomp/libseccomp-golang v0.9.2-0.20210429002308-3879420cc921
 github.com/seccomp/libseccomp-golang
-# github.com/sirupsen/logrus v1.4.2
+# github.com/sirupsen/logrus v1.8.1
 github.com/sirupsen/logrus
 # github.com/stretchr/objx v0.1.1
 github.com/stretchr/objx
@@ -233,12 +242,15 @@ github.com/stretchr/objx
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/mock
 github.com/stretchr/testify/require
-# github.com/syndtr/gocapability v0.0.0-20180916011248-d98352740cb2
+# github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 github.com/syndtr/gocapability/capability
-# github.com/vishvananda/netlink v0.0.0-20150820014904-1e2e08e8a2dc
+# github.com/vishvananda/netlink v1.1.0
 github.com/vishvananda/netlink
 github.com/vishvananda/netlink/nl
-# golang.org/x/net v0.0.0-20191209160850-c0dbc17a3553
+# github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df
+github.com/vishvananda/netns
+# golang.org/x/net v0.0.0-20201224014010-6772e930b67b
+golang.org/x/net/bpf
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/http/httpguts
@@ -254,11 +266,12 @@ golang.org/x/oauth2
 golang.org/x/oauth2/internal
 golang.org/x/oauth2/jws
 golang.org/x/oauth2/jwt
-# golang.org/x/sys v0.0.0-20200107162124-548cf772de50
+# golang.org/x/sys v0.0.0-20211116061358-0a5406a5449c
+golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
-# golang.org/x/text v0.3.2
+# golang.org/x/text v0.3.3
 golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
@@ -314,6 +327,37 @@ google.golang.org/grpc/serviceconfig
 google.golang.org/grpc/stats
 google.golang.org/grpc/status
 google.golang.org/grpc/tap
+# google.golang.org/protobuf v1.27.1
+google.golang.org/protobuf/encoding/prototext
+google.golang.org/protobuf/encoding/protowire
+google.golang.org/protobuf/internal/descfmt
+google.golang.org/protobuf/internal/descopts
+google.golang.org/protobuf/internal/detrand
+google.golang.org/protobuf/internal/encoding/defval
+google.golang.org/protobuf/internal/encoding/messageset
+google.golang.org/protobuf/internal/encoding/tag
+google.golang.org/protobuf/internal/encoding/text
+google.golang.org/protobuf/internal/errors
+google.golang.org/protobuf/internal/filedesc
+google.golang.org/protobuf/internal/filetype
+google.golang.org/protobuf/internal/flags
+google.golang.org/protobuf/internal/genid
+google.golang.org/protobuf/internal/impl
+google.golang.org/protobuf/internal/order
+google.golang.org/protobuf/internal/pragma
+google.golang.org/protobuf/internal/set
+google.golang.org/protobuf/internal/strs
+google.golang.org/protobuf/internal/version
+google.golang.org/protobuf/proto
+google.golang.org/protobuf/reflect/protodesc
+google.golang.org/protobuf/reflect/protoreflect
+google.golang.org/protobuf/reflect/protoregistry
+google.golang.org/protobuf/runtime/protoiface
+google.golang.org/protobuf/runtime/protoimpl
+google.golang.org/protobuf/types/descriptorpb
+google.golang.org/protobuf/types/known/anypb
+google.golang.org/protobuf/types/known/durationpb
+google.golang.org/protobuf/types/known/timestamppb
 # gopkg.in/olivere/elastic.v2 v2.0.12
 gopkg.in/olivere/elastic.v2
 gopkg.in/olivere/elastic.v2/uritemplates
